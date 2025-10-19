@@ -1,0 +1,486 @@
+{
+  "video": {
+    "stability-video": {
+      "version": "stability-ai/stable-video-diffusion:3f0457e4619daac51203dedb472816fd4af51f3149fa7a9e0b5ffcf1b8172438",
+      "pricing": 0.05,
+      "estimatedTime": 60,
+      "supportedParams": [
+        "image",
+        "motion_bucket_id",
+        "fps",
+        "num_frames",
+        "cond_aug"
+      ],
+      "defaults": {
+        "motion_bucket_id": 127,
+        "fps": 24,
+        "num_frames": 25,
+        "cond_aug": 0.02
+      },
+      "requiredParams": ["image"]
+    },
+    "wan-2.5-t2v": {
+      "version": "wan-video/wan-2.5-t2v:9472c9ba76aa3caad7f8e8dfe82a91dccf796d3b8015f64f83ac28a89d9ddff6",
+      "pricing": {
+        "type": "resolution_based",
+        "basePrice": 0.10,
+        "formula": "duration * resolution_rate",
+        "resolutionPricing": [
+          {
+            "resolution": "832*480",
+            "label": "480p Landscape",
+            "pricePerSecond": 0.05
+          },
+          {
+            "resolution": "480*832",
+            "label": "480p Portrait",
+            "pricePerSecond": 0.05
+          },
+          {
+            "resolution": "1280*720",
+            "label": "720p Landscape",
+            "pricePerSecond": 0.10
+          },
+          {
+            "resolution": "720*1280",
+            "label": "720p Portrait",
+            "pricePerSecond": 0.10
+          },
+          {
+            "resolution": "1920*1080",
+            "label": "1080p Landscape",
+            "pricePerSecond": 0.15
+          },
+          {
+            "resolution": "1080*1920",
+            "label": "1080p Portrait",
+            "pricePerSecond": 0.15
+          }
+        ]
+      },
+      "estimatedTime": 30,
+      "supportedParams": [
+        "prompt",
+        "duration",
+        "size",
+        "audio",
+        "negative_prompt",
+        "seed",
+        "enable_prompt_expansion"
+      ],
+      "capabilities": {
+        "supportsImageInput": false,
+        "supportsAudioInput": true,
+        "audioFormats": ["wav", "mp3"],
+        "audioMaxSize": 15728640,
+        "audioDurationRange": [3, 30],
+        "features": [
+          "audio_sync",
+          "lip_sync",
+          "multilingual",
+          "prompt_expansion"
+        ]
+      },
+      "advancedParams": {
+        "negative_prompt": {
+          "type": "string",
+          "description": "Elements to avoid in generation",
+          "optional": true
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Seed for reproducibility",
+          "optional": true,
+          "min": 0,
+          "max": 2147483647
+        },
+        "enable_prompt_expansion": {
+          "type": "boolean",
+          "description": "Enable AI prompt optimization",
+          "optional": true,
+          "default": true
+        }
+      },
+      "defaults": {
+        "duration": 5,
+        "size": "1280*720",
+        "enable_prompt_expansion": true
+      },
+      "requiredParams": ["prompt"]
+    },
+    "wan-2.5-t2v-fast": {
+      "version": "wan-video/wan-2.5-t2v-fast",
+      "pricing": {
+        "type": "resolution_based",
+        "basePrice": 0.10,
+        "formula": "duration * resolution_rate",
+        "resolutionPricing": [
+          {
+            "resolution": "832*480",
+            "label": "480p Landscape",
+            "pricePerSecond": 0.05
+          },
+          {
+            "resolution": "480*832",
+            "label": "480p Portrait",
+            "pricePerSecond": 0.05
+          },
+          {
+            "resolution": "1280*720",
+            "label": "720p Landscape",
+            "pricePerSecond": 0.10
+          },
+          {
+            "resolution": "720*1280",
+            "label": "720p Portrait",
+            "pricePerSecond": 0.10
+          },
+          {
+            "resolution": "1920*1080",
+            "label": "1080p Landscape",
+            "pricePerSecond": 0.15
+          },
+          {
+            "resolution": "1080*1920",
+            "label": "1080p Portrait",
+            "pricePerSecond": 0.15
+          }
+        ]
+      },
+      "estimatedTime": 15,
+      "supportedParams": [
+        "prompt",
+        "duration",
+        "size",
+        "audio",
+        "negative_prompt",
+        "seed",
+        "enable_prompt_expansion"
+      ],
+      "capabilities": {
+        "supportsImageInput": false,
+        "supportsAudioInput": true,
+        "audioFormats": ["wav", "mp3"],
+        "audioMaxSize": 15728640,
+        "audioDurationRange": [3, 30],
+        "features": [
+          "audio_sync",
+          "lip_sync",
+          "multilingual",
+          "prompt_expansion",
+          "fast_generation"
+        ]
+      },
+      "advancedParams": {
+        "negative_prompt": {
+          "type": "string",
+          "description": "Elements to avoid in generation",
+          "optional": true
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Seed for reproducibility",
+          "optional": true,
+          "min": 0,
+          "max": 2147483647
+        },
+        "enable_prompt_expansion": {
+          "type": "boolean",
+          "description": "Enable AI prompt optimization",
+          "optional": true,
+          "default": true
+        }
+      },
+      "defaults": {
+        "duration": 5,
+        "size": "1280*720",
+        "enable_prompt_expansion": true
+      },
+      "requiredParams": ["prompt"]
+    },
+    "veo-3.1": {
+      "version": "google/veo-3.1",
+      "pricing": {
+        "type": "resolution_based",
+        "basePrice": 0.08,
+        "formula": "duration * resolution_rate",
+        "resolutionPricing": [
+          {
+            "resolution": "720p",
+            "label": "720p",
+            "pricePerSecond": 0.08
+          },
+          {
+            "resolution": "1080p",
+            "label": "1080p",
+            "pricePerSecond": 0.12
+          }
+        ]
+      },
+      "estimatedTime": 40,
+      "supportedParams": [
+        "prompt",
+        "aspect_ratio",
+        "duration",
+        "image",
+        "last_frame",
+        "reference_images",
+        "resolution",
+        "generate_audio",
+        "negative_prompt",
+        "seed"
+      ],
+      "capabilities": {
+        "supportsImageInput": true,
+        "imageInputType": "single",
+        "supportsReferenceImages": true,
+        "referenceImagesType": "array",
+        "referenceImagesConstraints": {
+          "aspect_ratio": "16:9",
+          "duration": 8,
+          "minImages": 1,
+          "maxImages": 3
+        },
+        "supportsAudioGeneration": true,
+        "features": [
+          "reference_to_video",
+          "interpolation",
+          "context_aware_audio",
+          "image_to_video",
+          "high_fidelity"
+        ]
+      },
+      "advancedParams": {
+        "negative_prompt": {
+          "type": "string",
+          "description": "Elements to avoid in generation",
+          "optional": true
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Seed for reproducibility",
+          "optional": true,
+          "min": 0,
+          "max": 2147483647
+        },
+        "generate_audio": {
+          "type": "boolean",
+          "description": "Generate context-aware audio",
+          "optional": true,
+          "default": true
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "description": "Video aspect ratio",
+          "optional": true,
+          "default": "16:9",
+          "enum": ["16:9", "9:16"]
+        }
+      },
+      "defaults": {
+        "duration": 8,
+        "resolution": "1080p",
+        "aspect_ratio": "16:9",
+        "generate_audio": true
+      },
+      "requiredParams": ["prompt"]
+    },
+    "veo-3.1-fast": {
+      "version": "google/veo-3.1-fast",
+      "pricing": {
+        "type": "resolution_based",
+        "basePrice": 0.06,
+        "formula": "duration * resolution_rate",
+        "resolutionPricing": [
+          {
+            "resolution": "720p",
+            "label": "720p",
+            "pricePerSecond": 0.06
+          },
+          {
+            "resolution": "1080p",
+            "label": "1080p",
+            "pricePerSecond": 0.09
+          }
+        ]
+      },
+      "estimatedTime": 20,
+      "supportedParams": [
+        "prompt",
+        "aspect_ratio",
+        "duration",
+        "image",
+        "last_frame",
+        "resolution",
+        "generate_audio",
+        "negative_prompt",
+        "seed"
+      ],
+      "capabilities": {
+        "supportsImageInput": true,
+        "imageInputType": "single",
+        "supportsAudioGeneration": true,
+        "features": [
+          "interpolation",
+          "context_aware_audio",
+          "image_to_video",
+          "fast_generation"
+        ]
+      },
+      "advancedParams": {
+        "negative_prompt": {
+          "type": "string",
+          "description": "Elements to avoid in generation",
+          "optional": true
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Seed for reproducibility",
+          "optional": true,
+          "min": 0,
+          "max": 2147483647
+        },
+        "generate_audio": {
+          "type": "boolean",
+          "description": "Generate context-aware audio",
+          "optional": true,
+          "default": true
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "description": "Video aspect ratio",
+          "optional": true,
+          "default": "16:9",
+          "enum": ["16:9", "9:16"]
+        }
+      },
+      "defaults": {
+        "duration": 8,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "generate_audio": true
+      },
+      "requiredParams": ["prompt"]
+    }
+  },
+  "image": {
+    "flux-schnell": {
+      "version": "black-forest-labs/flux-schnell",
+      "pricing": 0.003,
+      "estimatedTime": 5,
+      "supportedParams": [
+        "prompt",
+        "width",
+        "height",
+        "num_outputs",
+        "num_inference_steps",
+        "guidance_scale",
+        "seed"
+      ],
+      "defaults": {
+        "width": 1024,
+        "height": 1024,
+        "num_outputs": 1,
+        "num_inference_steps": 4,
+        "guidance_scale": 0
+      },
+      "requiredParams": ["prompt"]
+    },
+    "sdxl": {
+      "version": "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
+      "pricing": 0.01,
+      "estimatedTime": 10,
+      "supportedParams": [
+        "prompt",
+        "negative_prompt",
+        "width",
+        "height",
+        "num_outputs",
+        "num_inference_steps",
+        "guidance_scale",
+        "scheduler",
+        "seed"
+      ],
+      "defaults": {
+        "width": 1024,
+        "height": 1024,
+        "num_outputs": 1,
+        "num_inference_steps": 50,
+        "guidance_scale": 7.5,
+        "scheduler": "DDIM"
+      },
+      "requiredParams": ["prompt"]
+    },
+    "nano-banana": {
+      "version": "google/nano-banana",
+      "pricing": {
+        "type": "fixed",
+        "basePrice": 0.039
+      },
+      "estimatedTime": 15,
+      "supportedParams": [
+        "prompt",
+        "image_input",
+        "output_format"
+      ],
+      "capabilities": {
+        "supportsImageInput": true,
+        "imageInputType": "array",
+        "supportsAudioInput": false,
+        "features": [
+          "multi_image_fusion",
+          "character_consistency",
+          "style_transfer",
+          "scene_editing",
+          "synthid_watermark"
+        ]
+      },
+      "advancedParams": {
+        "output_format": {
+          "type": "string",
+          "description": "Output image format",
+          "optional": true,
+          "default": "jpg",
+          "enum": ["jpg", "png"]
+        }
+      },
+      "defaults": {
+        "output_format": "jpg"
+      },
+      "requiredParams": ["prompt"]
+    }
+  },
+  "audio": {
+    "musicgen": {
+      "version": "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",
+      "pricing": 0.02,
+      "estimatedTime": 30,
+      "supportedParams": [
+        "prompt",
+        "duration",
+        "temperature",
+        "top_k",
+        "top_p",
+        "continuation",
+        "model_version",
+        "output_format",
+        "continuation_start",
+        "multi_band_diffusion",
+        "normalization_strategy",
+        "classifier_free_guidance",
+        "seed"
+      ],
+      "defaults": {
+        "duration": 8,
+        "temperature": 1.0,
+        "top_k": 250,
+        "top_p": 0.0,
+        "model_version": "stereo-large",
+        "output_format": "mp3",
+        "normalization_strategy": "loudness",
+        "classifier_free_guidance": 3
+      },
+      "requiredParams": ["prompt"]
+    }
+  }
+}

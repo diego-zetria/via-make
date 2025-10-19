@@ -1,0 +1,39 @@
+{
+  "name": "vsl-media-generation-handlers",
+  "version": "1.0.0",
+  "description": "AWS Lambda handlers for VSL AI media generation system",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.js\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.699.0",
+    "@aws-sdk/client-s3": "^3.699.0",
+    "@aws-sdk/client-secrets-manager": "^3.699.0",
+    "@aws-sdk/client-cloudwatch": "^3.699.0",
+    "@aws-sdk/lib-dynamodb": "^3.699.0",
+    "pg": "^8.13.1",
+    "redis": "^4.7.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "replicate",
+    "ai",
+    "media-generation"
+  ],
+  "author": "VSL Team",
+  "license": "UNLICENSED",
+  "private": true
+}

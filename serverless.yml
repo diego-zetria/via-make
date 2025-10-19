@@ -1,0 +1,306 @@
+service: vsl-homolog
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'homolog'}
+  memorySize: 1024
+  timeout: 30
+  logRetentionInDays: 14
+
+  # Environment variables for all functions
+  environment:
+    STAGE: ${self:provider.stage}
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+    NODE_OPTIONS: '--enable-source-maps'
+
+    # Database connections (from SSM Parameter Store)
+    DATABASE_URL: ${ssm:/vsl/database-url}
+    REDIS_URL: ${ssm:/vsl/redis-url}
+
+    # Replicate API
+    REPLICATE_API_TOKEN: ${ssm:/vsl/replicate-token}
+    REPLICATE_WEBHOOK_SECRET: ${ssm:/vsl/webhook-secret}
+
+    # AWS Resources
+    S3_BUCKET: ${self:custom.s3BucketName}
+    DYNAMODB_TABLE: ${self:custom.dynamoTableName}
+
+    # Configuration (MODELS_CONFIG is optional, loaded from config/models.json by default)
+    WEBHOOK_BASE_URL:
+      Fn::Sub: '${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}'
+
+  # Configuração VPC para acesso seguro aos recursos
+  vpc:
+    securityGroupIds:
+      - sg-06518c84236387d0d  # ecs-zyzfy-prod-nodes
+    subnetIds:
+      - subnet-0ac50f3773f4a7f8a  # us-east-1a, zyzfy-prod-Subnet-Private-A
+      - subnet-03bfb80a983c87306  # us-east-1b, zyzfy-prod-Subnet-Private-B
+
+  # IAM Role Statements
+  iam:
+    role:
+      statements:
+        # DynamoDB permissions
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - !GetAtt RealtimeJobsTable.Arn
+            - !Sub '${RealtimeJobsTable.Arn}/index/*'
+
+        # S3 permissions
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource: !Sub '${MediaBucket.Arn}/*'
+
+        # CloudWatch Metrics permissions
+        - Effect: Allow
+          Action:
+            - cloudwatch:PutMetricData
+          Resource: '*'
+
+        # SSM Parameter Store permissions
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - arn:aws:ssm:us-east-1:*:parameter/vsl/*
+
+        # VPC/ENI permissions (required for Lambda in VPC)
+        - Effect: Allow
+          Action:
+            - ec2:CreateNetworkInterface
+            - ec2:DescribeNetworkInterfaces
+            - ec2:DeleteNetworkInterface
+            - ec2:AssignPrivateIpAddresses
+            - ec2:UnassignPrivateIpAddresses
+          Resource: '*'
+
+  # API Gateway configuration
+  apiGateway:
+    shouldStartNameWithService: true
+    minimumCompressionSize: 1024
+
+  # Tags for all resources
+  tags:
+    Project: VSL
+    Environment: ${self:provider.stage}
+    ManagedBy: Serverless
+
+# Custom variables
+custom:
+  s3BucketName: vsl-${self:provider.stage}-media
+  dynamoTableName: vsl-${self:provider.stage}-realtime-jobs
+
+# Lambda Functions
+functions:
+  # Generate Media - Creates new generation jobs
+  generateMedia:
+    handler: handlers/generate-media.handler
+    description: 'VSL: Generate AI media (video, image, audio)'
+    memorySize: 1024
+    timeout: 30
+    events:
+      - http:
+          path: /generate-media
+          method: post
+          cors: true
+
+  # Process Webhook - Handles Replicate callbacks
+  processWebhook:
+    handler: handlers/process-webhook.handler
+    description: 'VSL: Process Replicate webhooks'
+    memorySize: 2048
+    timeout: 300
+    events:
+      - http:
+          path: /webhook/replicate
+          method: post
+
+  # Get Status - Retrieves job status
+  getStatus:
+    handler: handlers/get-status.handler
+    description: 'VSL: Get job status'
+    memorySize: 512
+    timeout: 10
+    events:
+      - http:
+          path: /status/{jobId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                jobId: true
+
+# CloudFormation Resources
+resources:
+  Resources:
+    # DynamoDB Table for real-time job tracking
+    RealtimeJobsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamoTableName}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: jobId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: N
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: replicateId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: jobId
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          # Index for querying by user
+          - IndexName: UserIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: timestamp
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+          # Index for querying by replicateId (for webhooks)
+          - IndexName: ReplicateIdIndex
+            KeySchema:
+              - AttributeName: replicateId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+        Tags:
+          - Key: Project
+            Value: VSL
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: ManagedBy
+            Value: Serverless
+
+    # S3 Bucket for media storage
+    MediaBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3BucketName}
+
+        # CORS Configuration
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins: ['*']
+              AllowedMethods: [GET, PUT, POST, HEAD]
+              AllowedHeaders: ['*']
+              MaxAge: 3000
+
+        # Lifecycle Configuration
+        LifecycleConfiguration:
+          Rules:
+            # Delete temporary files after 1 day
+            - Id: DeleteTempFiles
+              Status: Enabled
+              ExpirationInDays: 1
+              Prefix: temp/
+
+            # Archive old media to Glacier after 90 days
+            - Id: ArchiveOldMedia
+              Status: Enabled
+              Transitions:
+                - StorageClass: GLACIER
+                  TransitionInDays: 90
+
+        # Public Access Block (allow public read)
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+
+        # Server-side encryption
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+
+        Tags:
+          - Key: Project
+            Value: VSL
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: ManagedBy
+            Value: Serverless
+
+    # S3 Bucket Policy (allow public read)
+    MediaBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref MediaBucket
+        PolicyDocument:
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: '*'
+              Action: s3:GetObject
+              Resource: !Sub '${MediaBucket.Arn}/*'
+
+  # CloudFormation Outputs
+  Outputs:
+    ApiEndpoint:
+      Description: API Gateway endpoint URL
+      Value:
+        Fn::Sub: 'https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}'
+
+    MediaBucketName:
+      Description: S3 bucket for media storage
+      Value: !Ref MediaBucket
+
+    MediaBucketUrl:
+      Description: S3 bucket URL
+      Value: !GetAtt MediaBucket.WebsiteURL
+
+    DynamoTableName:
+      Description: DynamoDB table for real-time job tracking
+      Value: !Ref RealtimeJobsTable
+
+    DynamoTableArn:
+      Description: DynamoDB table ARN
+      Value: !GetAtt RealtimeJobsTable.Arn
+
+# Packaging configuration
+package:
+  individually: false
+  patterns:
+    - '!.git/**'
+    - '!.gitignore'
+    - '!README.md'
+    - '!docs/**'
+    - '!database/**'
+    - '!*.md'
+    - 'handlers/**'
+    - 'config/**'
+
+# Plugins
+# plugins:
+#   - serverless-offline

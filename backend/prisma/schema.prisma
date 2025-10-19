@@ -1,0 +1,353 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["vsl_frontend"]
+}
+
+// ============================================================================
+// NOVELA MANAGEMENT TABLES
+// ============================================================================
+
+model Novela {
+  id                      String   @id @default(cuid())
+  title                   String
+  description             String?  @db.Text
+  genre                   String?
+  targetEpisodes          Int      @map("target_episodes")
+  createdVideos           Int      @default(0) @map("created_videos")
+  totalCost               Decimal  @default(0) @db.Decimal(10, 2)
+  estimatedCost           Decimal? @db.Decimal(10, 2)
+  defaultModelId          String?  @map("default_model_id")
+  defaultDuration         Int      @default(8)
+  defaultResolution       String   @default("1080p")
+  defaultAspectRatio      String   @default("16:9") @map("default_aspect_ratio")
+  referenceCharacterImages Json?   @map("reference_character_images")
+  masterSeed              Int?     @map("master_seed")
+  status                  String   @default("planning") // planning, active, paused, completed
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  videos         NovelaVideo[]
+  agentMessages  AgentMessage[]
+  mediaLibrary   MediaLibrary[]
+  chatMessages   UserChatMessage[]
+
+  @@index([status])
+  @@map("novelas")
+  @@schema("vsl_frontend")
+}
+
+model NovelaVideo {
+  id              String   @id @default(cuid())
+  novelaId        String   @map("novela_id")
+  sceneNumber     Int      @map("scene_number")
+  title           String?
+  prompt          String   @db.Text
+  modelId         String   @map("model_id")
+  duration        Int
+  resolution      String
+  aspectRatio     String   @map("aspect_ratio")
+  seed            Int?
+  referenceImages Json?    @map("reference_images")
+  replicateJobId  String?  @map("replicate_job_id")
+  lambdaRequestId String?  @map("lambda_request_id")
+  status          String   @default("pending") // pending, processing, completed, failed
+  videoUrl        String?  @map("video_url")
+  cost            Decimal? @db.Decimal(10, 2)
+  processingTime  Int?     @map("processing_time") // seconds
+  errorMessage    String?  @db.Text @map("error_message")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  novela Novela @relation(fields: [novelaId], references: [id], onDelete: Cascade)
+
+  @@unique([novelaId, sceneNumber])
+  @@index([novelaId])
+  @@index([status])
+  @@index([replicateJobId])
+  @@map("novela_videos")
+  @@schema("vsl_frontend")
+}
+
+// ============================================================================
+// GPT-5 MULTI-AGENT SYSTEM TABLES
+// ============================================================================
+
+model AgentMessage {
+  id              String   @id @default(cuid())
+  novelaId        String?  @map("novela_id")  // OPTIONAL: can work without novela
+  conversationId  String   @map("conversation_id")
+  fromAgent       String   @map("from_agent") // script_writer, system_integrator, fallback_handler
+  toAgent         String?  @map("to_agent")
+  type            String   // request, response, broadcast, error
+  priority        String   // low, medium, high, urgent
+  content         String   @db.Text
+  metadata        Json?
+  timestamp       DateTime @default(now())
+
+  novela Novela? @relation(fields: [novelaId], references: [id], onDelete: Cascade)
+
+  @@index([novelaId])
+  @@index([conversationId])
+  @@index([fromAgent])
+  @@index([timestamp])
+  @@map("agent_messages")
+  @@schema("vsl_frontend")
+}
+
+model UserChatMessage {
+  id              String   @id @default(cuid())
+  novelaId        String?  @map("novela_id")
+  role            String   // user, assistant
+  content         String   @db.Text
+  agentType       String?  @map("agent_type") // fallback_handler
+  metadata        Json?
+  timestamp       DateTime @default(now())
+
+  novela Novela? @relation(fields: [novelaId], references: [id], onDelete: Cascade)
+
+  @@index([novelaId])
+  @@index([timestamp])
+  @@map("user_chat_messages")
+  @@schema("vsl_frontend")
+}
+
+// ============================================================================
+// MEDIA LIBRARY TABLE
+// ============================================================================
+
+model MediaLibrary {
+  id              String   @id @default(cuid())
+  novelaId        String?  @map("novela_id")
+  s3Key           String   @unique @map("s3_key")
+  s3Url           String   @map("s3_url")
+  filename        String
+  filesize        Int
+  contentType     String   @map("content_type")
+  metadata        Json?
+  tags            String[]
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  novela Novela? @relation(fields: [novelaId], references: [id], onDelete: SetNull)
+
+  @@index([novelaId])
+  @@index([s3Key])
+  @@index([createdAt])
+  @@map("media_library")
+  @@schema("vsl_frontend")
+}
+
+// ============================================================================
+// VSL (VIDEO SALES LETTER) TABLES
+// ============================================================================
+
+model VSLProject {
+  id                String   @id @default(cuid())
+  userId            String?  @map("user_id") // Optional user tracking
+  projectName       String   @map("project_name")
+  templateId        String   @map("template_id") // pas, aida, story, authority
+
+  // User Context
+  productService    String?  @db.Text @map("product_service")
+  targetAudience    String?  @db.Text @map("target_audience")
+  mainProblem       String?  @db.Text @map("main_problem")
+  priceOffer        String?  @map("price_offer")
+  tone              String   @default("professional") // professional, friendly, authoritative, inspiring
+
+  // Metadata
+  status            String   @default("draft") // draft, in_progress, completed
+  persuasionScore   Int      @default(0) @map("persuasion_score") // Overall project score 0-100
+  totalSections     Int      @default(0) @map("total_sections")
+  completedSections Int      @default(0) @map("completed_sections")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  sections VSLSection[]
+  videos   VSLVideo[]
+
+  @@index([userId])
+  @@index([templateId])
+  @@index([status])
+  @@map("vsl_projects")
+  @@schema("vsl_frontend")
+}
+
+model VSLSection {
+  id                String   @id @default(cuid())
+  projectId         String   @map("project_id")
+  sectionName       String   @map("section_name") // Problem, Agitate, Solution, etc
+  sectionOrder      Int      @map("section_order") // 0, 1, 2, 3...
+
+  // Content
+  content           String   @db.Text
+  aiSuggestion      String?  @db.Text @map("ai_suggestion")
+
+  // AI Analysis
+  persuasionScore   Int      @default(0) @map("persuasion_score") // 0-100
+  strengths         String[] // Array of strength points
+  weaknesses        String[] // Array of weakness points
+  improvements      String[] // Array of improvement suggestions
+  hooks             String[] // Attention-grabbing hooks
+
+  // Metadata
+  wordCount         Int      @default(0) @map("word_count")
+  characterCount    Int      @default(0) @map("character_count")
+  estimatedDuration Int      @default(0) @map("estimated_duration") // seconds
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  project VSLProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, sectionOrder])
+  @@index([projectId])
+  @@index([sectionName])
+  @@map("vsl_sections")
+  @@schema("vsl_frontend")
+}
+
+model VSLVideo {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  sectionId       String?  @map("section_id") // Optional: link to specific section
+
+  // Video Generation
+  prompt          String   @db.Text
+  modelId         String   @map("model_id")
+  duration        Int
+  resolution      String
+  aspectRatio     String   @map("aspect_ratio")
+  seed            Int?
+
+  // Replicate Integration
+  replicateJobId  String?  @map("replicate_job_id")
+  lambdaRequestId String?  @map("lambda_request_id")
+  status          String   @default("pending") // pending, processing, completed, failed
+  videoUrl        String?  @map("video_url")
+
+  // Cost & Performance
+  cost            Decimal? @db.Decimal(10, 2)
+  processingTime  Int?     @map("processing_time") // seconds
+
+  // Error Handling
+  errorMessage    String?  @db.Text @map("error_message")
+  retryCount      Int      @default(0) @map("retry_count")
+
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project VSLProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+  @@index([replicateJobId])
+  @@map("vsl_videos")
+  @@schema("vsl_frontend")
+}
+
+// ============================================================================
+// LAMBDA CONFIGURATION TABLES
+// ============================================================================
+
+model LambdaConfig {
+  id              String   @id @default(cuid())
+  userId          String?  @map("user_id") // Optional user tracking
+  name            String   // User-friendly name for this config
+  description     String?  @db.Text
+
+  // Lambda Function Details
+  lambdaName      String   @map("lambda_name") // generate-media, get-status
+  lambdaUrl       String   @map("lambda_url") // Full API Gateway URL
+
+  // Model Configuration
+  mediaType       String   @map("media_type") // video, image, audio
+  modelId         String   @map("model_id") // Model identifier for Replicate
+
+  // Default Parameters (JSON structure varies by model)
+  defaultParams   Json     @map("default_params") // Default parameters for this model
+
+  // AI Suggestions History
+  suggestedParams Json?    @map("suggested_params") // Last AI-suggested parameters
+  suggestionMeta  Json?    @map("suggestion_meta") // Metadata about AI suggestion
+
+  // Usage Tracking
+  useCount        Int      @default(0) @map("use_count")
+  lastUsedAt      DateTime? @map("last_used_at")
+
+  // Status
+  isActive        Boolean  @default(true) @map("is_active")
+  isDefault       Boolean  @default(false) @map("is_default") // Default config for this media type
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  jobs LambdaJob[]
+
+  @@index([userId])
+  @@index([lambdaName])
+  @@index([mediaType])
+  @@index([isDefault])
+  @@map("lambda_configs")
+  @@schema("vsl_frontend")
+}
+
+model LambdaJob {
+  id              String   @id @default(cuid())
+  configId        String?  @map("config_id") // Optional: reference to config used
+  userId          String?  @map("user_id")
+  projectId       String?  @map("project_id") // Optional: link to VSL project
+
+  // Job Details
+  jobId           String   @unique @map("job_id") // UUID from Lambda response
+  lambdaName      String   @map("lambda_name") // generate-media, get-status
+  mediaType       String   @map("media_type") // video, image, audio
+  modelId         String   @map("model_id")
+
+  // Request Data
+  prompt          String   @db.Text
+  parameters      Json     // Parameters sent to Lambda
+
+  // Replicate Integration
+  replicateId     String?  @map("replicate_id") // Replicate prediction ID
+
+  // Status & Results
+  status          String   @default("pending") // pending, processing, completed, failed
+  resultUrl       String?  @map("result_url") // S3 URL of generated media
+  s3Path          String?  @map("s3_path")
+  fileSize        Int?     @map("file_size")
+
+  // Cost & Performance
+  estimatedCost   Decimal? @db.Decimal(10, 4) @map("estimated_cost")
+  actualCost      Decimal? @db.Decimal(10, 4) @map("actual_cost")
+  estimatedTime   Int?     @map("estimated_time") // seconds
+  processingTime  Int?     @map("processing_time") // actual seconds
+
+  // Error Handling
+  error           String?  @db.Text
+  retryCount      Int      @default(0) @map("retry_count")
+
+  // Metadata
+  metadata        Json?
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  completedAt     DateTime? @map("completed_at")
+
+  config LambdaConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+
+  @@index([configId])
+  @@index([userId])
+  @@index([projectId])
+  @@index([jobId])
+  @@index([status])
+  @@index([mediaType])
+  @@map("lambda_jobs")
+  @@schema("vsl_frontend")
+}
