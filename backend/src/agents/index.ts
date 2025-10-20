@@ -11,5 +11,6 @@ export { SystemIntegratorAgent } from './SystemIntegratorAgent.js';
 export { FallbackHandlerAgent } from './FallbackHandlerAgent.js';
 export { VSLSpecialistAgent } from './VSLSpecialistAgent.js';
 export { LambdaConfigAgent } from './LambdaConfigAgent.js';
+export { ScriptDetailAgent } from './ScriptDetailAgent.js';
 export { CommunicationBus } from './CommunicationBus.js';
 export { AgentManager } from './AgentManager.js';

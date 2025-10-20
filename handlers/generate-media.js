@@ -25,13 +25,15 @@ exports.handler = async (event) => {
   try {
     // Parse request body
     const body = JSON.parse(event.body);
-    const { userId, mediaType, modelId, parameters = {}, prompt } = body;
+    const { userId, mediaType, modelId, parameters = {}, prompt, seed, reference_images, webhook_url } = body;
 
     log.info('Generation request received', {
       userId,
       mediaType,
       modelId,
-      hasPrompt: !!prompt
+      hasPrompt: !!prompt,
+      hasSeed: !!seed,
+      hasReferenceImages: !!reference_images
     });
 
     // Validate required fields
@@ -84,6 +86,18 @@ exports.handler = async (event) => {
         allParameters.prompt = prompt;
       }
 
+      // Add seed for visual continuity
+      if (seed !== undefined && seed !== null) {
+        allParameters.seed = seed;
+        log.info('Using provided seed for visual continuity', { seed });
+      }
+
+      // Add reference images for visual continuity
+      if (reference_images && Array.isArray(reference_images) && reference_images.length > 0) {
+        allParameters.reference_images = reference_images;
+        log.info('Using reference images for visual continuity', { count: reference_images.length });
+      }
+
       replicateInput = models.buildReplicateInput(modelId, mediaType, allParameters);
     } catch (error) {
       log.error('Invalid parameters', { error: error.message });
@@ -112,7 +126,10 @@ exports.handler = async (event) => {
       estimatedCost: models.getModelPricing(modelId, mediaType, parameters),
       metadata: {
         createdFrom: 'api',
-        userAgent: event.headers?.['User-Agent'] || 'unknown'
+        userAgent: event.headers?.['User-Agent'] || 'unknown',
+        seed: seed !== undefined ? seed : null,
+        referenceImages: reference_images || null,
+        customWebhook: !!webhook_url
       }
     };
 
@@ -134,9 +151,9 @@ exports.handler = async (event) => {
     await dynamo.put(process.env.DYNAMODB_TABLE, dynamoItem);
     log.info('Job created in DynamoDB', { jobId });
 
-    // Build webhook URL
-    const webhookBaseUrl = process.env.WEBHOOK_BASE_URL;
-    const webhookUrl = `https://${webhookBaseUrl}/webhook/replicate`;
+    // Build webhook URL (use provided webhook_url or default)
+    const webhookUrl = webhook_url || `https://${process.env.WEBHOOK_BASE_URL}/webhook/replicate`;
+    log.info('Using webhook URL', { webhookUrl: webhookUrl.substring(0, 50) + '...' });
 
     // Create prediction in Replicate
     const replicateClient = new ReplicateClient();

@@ -1,12 +1,14 @@
 # VSL Media Generation System
 
-AI-powered media generation system (video, image, audio) using Replicate API with AWS serverless infrastructure.
+AI-powered media generation system (video, image, audio) using Replicate API with AWS serverless infrastructure and FFmpeg video compilation.
 
 ## 🎯 Overview
 
 VSL is a production-ready serverless system for generating AI media through Replicate's API. It provides:
 
 - **Multi-format support**: Video, image, and audio generation
+- **Video compilation**: FFmpeg-powered video concatenation via AWS Lambda
+- **Video approval workflow**: Review and approve generated videos before compilation
 - **Dynamic configuration**: Environment-driven model registry (no code changes needed)
 - **Multi-database architecture**: PostgreSQL (primary), Redis (cache), DynamoDB (real-time)
 - **Scalable infrastructure**: AWS Lambda + API Gateway + S3
@@ -28,7 +30,9 @@ Client → API Gateway → Lambda Functions
 - **Generate Media Lambda**: Creates jobs, calls Replicate API
 - **Process Webhook Lambda**: Handles Replicate callbacks, downloads/uploads media
 - **Get Status Lambda**: Multi-layer cache for fast status checks
-- **PostgreSQL**: Primary data store with full job history
+- **Compile Videos Lambda**: Concatenates approved videos using FFmpeg
+- **Node.js Backend**: Video approval workflow and compilation orchestration
+- **PostgreSQL**: Primary data store with full job history and video approval status
 - **Redis**: High-speed cache and rate limiting
 - **DynamoDB**: Real-time job tracking with TTL cleanup
 - **S3**: Organized media storage with lifecycle policies
@@ -37,13 +41,26 @@ Client → API Gateway → Lambda Functions
 
 ```
 vsl/
-├── handlers/           # Lambda function handlers
-│   ├── lib/           # Shared utilities
-│   └── *.js           # Handler functions
-├── database/          # PostgreSQL schemas
-├── docs/              # Documentation
-├── config/            # Configuration files
-└── serverless.yml     # Infrastructure as Code
+├── handlers/              # Lambda function handlers
+│   ├── lib/              # Shared utilities (logger, database, s3)
+│   ├── generate-media.js # Video/image generation
+│   ├── process-webhook.js # Replicate webhook handler
+│   ├── get-status.js     # Job status lookup
+│   └── compile-videos.js # FFmpeg video compilation
+├── backend/              # Node.js Express backend
+│   ├── src/
+│   │   ├── routes/      # API routes (scripts, webhooks, videos)
+│   │   ├── agents/      # AI agent system
+│   │   ├── middleware/  # Express middleware
+│   │   └── utils/       # Utilities
+│   ├── prisma/          # Database schema and migrations
+│   └── tests/           # Integration and E2E tests
+├── frontend/            # Next.js frontend
+│   └── app/vsl/editor/  # VSL editor with video approval
+├── database/            # PostgreSQL schemas
+├── docs/                # Documentation
+├── config/              # Configuration files
+└── serverless.yml       # Infrastructure as Code
 ```
 
 ## 🚀 Quick Start
@@ -102,6 +119,7 @@ serverless deploy --stage homolog --region us-east-1
 ## 📖 Documentation
 
 - **[Architecture](docs/ARCHITECTURE.md)**: Complete system architecture
+- **[Video Compilation](docs/VIDEO_COMPILATION.md)**: FFmpeg video compilation system
 - **[API Reference](docs/API.md)**: API endpoints and usage
 - **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)**: Development guide
 - **[Database Schema](database/README.md)**: PostgreSQL setup and queries
@@ -262,6 +280,52 @@ fields @timestamp, jobId, modelId, error
 
 Estimated cost for 1000 generations/day: **~$30-50/month** (AWS) + **~$10-100** (Replicate, depends on models)
 
+## 🎬 Video Compilation
+
+### FFmpeg-Powered Video Concatenation
+
+The system includes a serverless video compilation feature using FFmpeg in AWS Lambda:
+
+**Features**:
+- **Video Approval Workflow**: Review and approve AI-generated videos
+- **FFmpeg Concat**: Fast concatenation without re-encoding (copy codec)
+- **S3 Storage**: Compiled videos stored permanently in S3
+- **Download Support**: Direct download with cross-origin blob handling
+
+**Performance**:
+- 3 videos (6.75MB): ~0.55s
+- No quality loss (copy codec, no re-encoding)
+- Minimal cost (~$0.000016 per compilation)
+
+**Example**:
+```bash
+# 1. Generate videos via frontend
+# 2. Approve videos (POST /api/section-videos/:videoId/approve)
+# 3. Compile (POST /api/scripts/:scriptId/compile)
+
+curl -X POST http://localhost:3001/api/scripts/67890/compile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "outputFormat": "mp4",
+    "quality": "high"
+  }'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "compiledVideoUrl": "https://vsl-homolog-media.s3.amazonaws.com/compiled/final-67890.mp4",
+    "videoCount": 3,
+    "fileSize": 7085456,
+    "duration": 550
+  }
+}
+```
+
+See [Video Compilation Documentation](docs/VIDEO_COMPILATION.md) for complete details.
+
 ## 🧪 Testing
 
 ### Unit Tests
@@ -299,14 +363,20 @@ serverless deploy --stage prod
 
 ## 📈 Roadmap
 
-- [ ] Complete Lambda handler implementations
-- [ ] Unit and integration tests
+- [x] Complete Lambda handler implementations
+- [x] Video compilation with FFmpeg
+- [x] Video approval workflow
+- [x] Webhook support for Replicate callbacks
+- [x] Backend integration with Node.js/Express
+- [x] Frontend video editor with Next.js
+- [ ] Unit and integration tests (partial)
 - [ ] CI/CD pipeline with GitHub Actions
 - [ ] Admin dashboard
 - [ ] User authentication (Cognito)
-- [ ] Webhook support for client applications
 - [ ] Multi-region deployment
 - [ ] Cost analytics dashboard
+- [ ] Compilation with transitions and audio
+- [ ] Multiple output formats (WebM, AVI)
 
 ## 🤝 Contributing
 

@@ -19,6 +19,7 @@ import { SystemIntegratorAgent } from './SystemIntegratorAgent.js';
 import { FallbackHandlerAgent } from './FallbackHandlerAgent.js';
 import { VSLSpecialistAgent } from './VSLSpecialistAgent.js';
 import { LambdaConfigAgent } from './LambdaConfigAgent.js';
+import { ScriptDetailAgent } from './ScriptDetailAgent.js';
 import {
   AgentRole,
   ScriptWriterInput,
@@ -31,6 +32,8 @@ import {
   VSLSpecialistOutput,
   LambdaConfigInput,
   LambdaConfigOutput,
+  ScriptDetailInput,
+  ScriptDetailOutput,
 } from './types.js';
 
 export class AgentManager {
@@ -40,6 +43,7 @@ export class AgentManager {
   private fallbackHandler: FallbackHandlerAgent;
   private vslSpecialist: VSLSpecialistAgent;
   private lambdaConfig: LambdaConfigAgent;
+  private scriptDetail: ScriptDetailAgent;
   private initialized: boolean = false;
 
   constructor(io: SocketIOServer) {
@@ -52,6 +56,7 @@ export class AgentManager {
     this.fallbackHandler = new FallbackHandlerAgent();
     this.vslSpecialist = new VSLSpecialistAgent();
     this.lambdaConfig = new LambdaConfigAgent();
+    this.scriptDetail = new ScriptDetailAgent();
 
     logger.info('✅ Agent Manager created');
   }
@@ -100,6 +105,12 @@ export class AgentManager {
       this.communicationBus.subscribe(AgentRole.LAMBDA_CONFIG, (message) => {
         logger.info(
           `📨 Lambda Config Agent received message from ${message.fromAgent}`
+        );
+      });
+
+      this.communicationBus.subscribe(AgentRole.SCRIPT_DETAIL, (message) => {
+        logger.info(
+          `📨 Script Detail Agent received message from ${message.fromAgent}`
         );
       });
 
@@ -179,6 +190,16 @@ export class AgentManager {
   ): Promise<LambdaConfigOutput> {
     this.ensureInitialized();
     return await this.lambdaConfig.process(input);
+  }
+
+  /**
+   * Generate detailed multi-video script for VSL section
+   */
+  async generateDetailedScript(
+    input: ScriptDetailInput
+  ): Promise<ScriptDetailOutput> {
+    this.ensureInitialized();
+    return await this.scriptDetail.process(input);
   }
 
   /**
@@ -295,6 +316,7 @@ export class AgentManager {
     this.communicationBus.unsubscribe(AgentRole.FALLBACK_HANDLER);
     this.communicationBus.unsubscribe(AgentRole.VSL_SPECIALIST);
     this.communicationBus.unsubscribe(AgentRole.LAMBDA_CONFIG);
+    this.communicationBus.unsubscribe(AgentRole.SCRIPT_DETAIL);
     this.initialized = false;
     logger.info('✅ Agent Manager shut down');
   }

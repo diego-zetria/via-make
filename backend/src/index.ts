@@ -7,6 +7,8 @@ import { logger } from './utils/logger.js';
 import { testGPT5Connection } from './services/gpt5/testConnection.js';
 import { AgentManager } from './agents/index.js';
 import lambdaRoutes from './routes/lambda.routes.js';
+import scriptsRoutes from './routes/scripts.routes.js';
+import webhooksRoutes from './routes/webhooks.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -436,6 +438,75 @@ app.put('/api/vsl/projects/:id', async (req, res) => {
   }
 });
 
+// Get sections for a project
+app.get('/api/vsl/projects/:id/sections', async (req, res) => {
+  try {
+    const { prisma } = await import('./config/database.js');
+
+    const sections = await prisma.vSLSection.findMany({
+      where: { projectId: req.params.id },
+      orderBy: { sectionOrder: 'asc' },
+      include: {
+        _count: {
+          select: { scripts: true },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Project sections retrieved successfully',
+      data: sections,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get project sections:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// Get single VSL section
+app.get('/api/vsl/sections/:id', async (req, res) => {
+  try {
+    const { prisma } = await import('./config/database.js');
+
+    const section = await prisma.vSLSection.findUnique({
+      where: { id: req.params.id },
+      include: {
+        project: true,
+        detailedScript: {
+          include: {
+            videos: {
+              orderBy: { videoOrder: 'asc' },
+            },
+          },
+        },
+      },
+    });
+
+    if (!section) {
+      return res.status(404).json({
+        success: false,
+        message: 'Section not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'VSL section retrieved successfully',
+      data: section,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get VSL section:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 // Update VSL section
 app.put('/api/vsl/sections/:id', async (req, res) => {
   try {
@@ -705,6 +776,13 @@ app.post('/api/vsl/sections/:id/score', async (req, res) => {
 
 // Use Lambda configuration routes
 app.use('/api/lambda', lambdaRoutes);
+
+// Use Section Detailed Scripts routes
+app.use('/api/scripts', scriptsRoutes);
+app.use('/api/section-videos', scriptsRoutes);
+
+// Use Webhooks routes (no auth required for external services)
+app.use('/api/webhooks', webhooksRoutes);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {

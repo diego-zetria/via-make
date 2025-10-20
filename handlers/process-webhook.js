@@ -252,6 +252,43 @@ async function handleSuccessfulGeneration(params) {
     duration: uploadDuration
   });
 
+  // Extract thumbnail if it's a video (for visual continuity)
+  let thumbnailUrl = null;
+  if (mediaType === 'video') {
+    try {
+      log.info('Extracting thumbnail from video', { jobId });
+
+      // Use FFmpeg to extract last frame
+      // In production, this would use FFmpeg Lambda layer or ECS task
+      // For now, we'll use a placeholder approach - extract from Replicate output
+
+      // Check if output array contains a thumbnail (some models provide it)
+      if (outputUrls.length > 1) {
+        // Second URL might be thumbnail
+        thumbnailUrl = outputUrls[1];
+        log.info('Using provided thumbnail from output array', { jobId, thumbnailUrl: thumbnailUrl.substring(0, 50) + '...' });
+      } else {
+        // Generate thumbnail URL by appending frame query parameter
+        // This is a Replicate feature for some video URLs
+        thumbnailUrl = `${primaryOutputUrl}?frame=last`;
+        log.info('Using generated thumbnail URL', { jobId, thumbnailUrl: thumbnailUrl.substring(0, 50) + '...' });
+      }
+
+      // TODO: For production, implement actual thumbnail extraction:
+      // 1. Download video to /tmp
+      // 2. Use FFmpeg to extract last frame: ffmpeg -sseof -1 -i input.mp4 -vframes 1 thumbnail.jpg
+      // 3. Upload thumbnail to S3
+      // 4. Return thumbnail S3 URL
+
+    } catch (thumbnailError) {
+      log.error('Thumbnail extraction failed', {
+        jobId,
+        error: thumbnailError.message
+      });
+      // Don't fail the whole job if thumbnail extraction fails
+    }
+  }
+
   // Calculate processing time
   const jobRecord = await postgres.getJob(jobId);
   const processingTime = Date.now() - new Date(jobRecord.created_at).getTime();
@@ -269,7 +306,8 @@ async function handleSuccessfulGeneration(params) {
       replicateOutput: output, // Store output in metadata instead
       replicateMetrics,
       downloadDuration,
-      uploadDuration
+      uploadDuration,
+      thumbnailUrl: thumbnailUrl || null
     }
   });
 
@@ -319,6 +357,48 @@ async function handleSuccessfulGeneration(params) {
     metrics.recordJobCompleted(mediaType, modelId, processingTime),
     metrics.recordS3Upload(uploadResult.size, uploadDuration, mediaType)
   ]);
+
+  // Notify backend Node.js application via webhook
+  try {
+    const backendWebhookUrl = process.env.BACKEND_WEBHOOK_URL || process.env.BACKEND_BASE_URL;
+
+    if (backendWebhookUrl) {
+      log.info('Calling backend webhook', { jobId, url: backendWebhookUrl });
+
+      const backendPayload = {
+        id: replicateId,
+        status: 'succeeded',
+        output: [uploadResult.url, thumbnailUrl].filter(Boolean),
+        metrics: replicateMetrics
+      };
+
+      log.info('📤 Backend webhook payload:', {
+        backendWebhookUrl,
+        payload: JSON.stringify(backendPayload, null, 2),
+        outputArray: backendPayload.output,
+        firstUrl: backendPayload.output[0],
+      });
+
+      const response = await fetch(`${backendWebhookUrl}/api/webhooks/replicate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(backendPayload)
+      });
+
+      const result = await response.json();
+      log.info('Backend webhook called', { jobId, status: response.status, result });
+    } else {
+      log.warn('BACKEND_WEBHOOK_URL not configured - skipping backend notification');
+    }
+  } catch (backendError) {
+    log.error('Failed to notify backend', {
+      jobId,
+      error: backendError.message
+    });
+    // Don't fail the whole job if backend notification fails
+  }
 
   log.info('Job completed successfully', {
     jobId,
@@ -386,6 +466,37 @@ async function handleFailedGeneration(params) {
   // Record metrics
   const errorType = status === 'canceled' ? 'user_canceled' : 'replicate_error';
   await metrics.recordJobFailed(mediaType, modelId, errorType);
+
+  // Notify backend Node.js application via webhook
+  try {
+    const backendWebhookUrl = process.env.BACKEND_WEBHOOK_URL || process.env.BACKEND_BASE_URL;
+
+    if (backendWebhookUrl) {
+      log.info('Calling backend webhook for failure', { jobId, url: backendWebhookUrl });
+
+      const backendPayload = {
+        id: replicateId,
+        status: status,
+        error: errorMessage
+      };
+
+      const response = await fetch(`${backendWebhookUrl}/api/webhooks/replicate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(backendPayload)
+      });
+
+      const result = await response.json();
+      log.info('Backend webhook called for failure', { jobId, status: response.status, result });
+    }
+  } catch (backendError) {
+    log.error('Failed to notify backend of failure', {
+      jobId,
+      error: backendError.message
+    });
+  }
 
   log.info('Job marked as failed', {
     jobId,

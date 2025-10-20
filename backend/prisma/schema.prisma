@@ -168,8 +168,10 @@ model VSLProject {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  sections VSLSection[]
-  videos   VSLVideo[]
+  sections        VSLSection[]
+  videos          VSLVideo[]
+  lambdaConfigs   LambdaConfig[]
+  detailedScripts SectionDetailedScript[]
 
   @@index([userId])
   @@index([templateId])
@@ -203,7 +205,8 @@ model VSLSection {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  project VSLProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         VSLProject             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  detailedScript  SectionDetailedScript?
 
   @@unique([projectId, sectionOrder])
   @@index([projectId])
@@ -253,12 +256,95 @@ model VSLVideo {
 }
 
 // ============================================================================
+// SECTION DETAILED SCRIPT TABLES (Multi-video generation per section)
+// ============================================================================
+
+model SectionDetailedScript {
+  id            String   @id @default(cuid())
+  projectId     String   @map("project_id")
+  sectionId     String   @unique @map("section_id") // FK to VSLSection
+
+  // Script Configuration
+  language      String   // pt-br, en, es, it, fr, de
+  totalDuration Int      @map("total_duration") // Total seconds for this section
+  videoCount    Int      @map("video_count") // How many videos needed
+
+  // AI-Generated Content
+  aiGenerated   Boolean  @default(false) @map("ai_generated")
+  generatedBy   String?  @map("generated_by") // "script_detail_agent"
+
+  // Metadata
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project       VSLProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  section       VSLSection  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  videos        SectionVideo[]
+
+  @@index([projectId])
+  @@index([sectionId])
+  @@map("section_detailed_scripts")
+  @@schema("vsl_frontend")
+}
+
+model SectionVideo {
+  id                String   @id @default(cuid())
+  scriptId          String   @map("script_id") // FK to SectionDetailedScript
+  videoOrder        Int      @map("video_order") // 1, 2, 3...
+
+  // Timestamps
+  startTime         String   @map("start_time") // "0:00"
+  endTime           String   @map("end_time")   // "0:10"
+  duration          Int      // seconds
+
+  // Script Content (Hero's Journey format)
+  partName          String   @map("part_name") @db.Text // "PART 1: The Ordinary World"
+  step              String   @db.Text // "Step 1: The Hero in Their World"
+  objective         String   @db.Text
+  voice             String   @db.Text // Narration script
+  example           String   @db.Text // Example script
+  visual            String   @db.Text // Visual description
+
+  // Generation Parameters
+  modelId           String   @map("model_id")
+  seed              Int?     // For consistency
+  referenceImageUrl String?  @map("reference_image_url") @db.Text // From previous video
+  generationParams  Json     @map("generation_params")
+
+  // Generation Status
+  status            String   @default("pending") // pending, generating, completed, failed, approved
+  lambdaJobId       String?  @unique @map("lambda_job_id") // FK to LambdaJob
+  replicateJobId    String?  @map("replicate_job_id")
+  resultUrl         String?  @map("result_url") @db.Text // S3 URL
+  thumbnailUrl      String?  @map("thumbnail_url") @db.Text
+
+  // Metrics
+  actualCost        Decimal? @db.Decimal(10, 4) @map("actual_cost")
+  processingTime    Int?     @map("processing_time") // seconds
+  errorMessage      String?  @db.Text @map("error_message")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  script            SectionDetailedScript @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  lambdaJob         LambdaJob? @relation(fields: [lambdaJobId], references: [id])
+
+  @@unique([scriptId, videoOrder])
+  @@index([scriptId])
+  @@index([status])
+  @@index([lambdaJobId])
+  @@map("section_videos")
+  @@schema("vsl_frontend")
+}
+
+// ============================================================================
 // LAMBDA CONFIGURATION TABLES
 // ============================================================================
 
 model LambdaConfig {
   id              String   @id @default(cuid())
   userId          String?  @map("user_id") // Optional user tracking
+  projectId       String?  @map("project_id") // Optional: link to VSL project
   name            String   // User-friendly name for this config
   description     String?  @db.Text
 
@@ -288,9 +374,11 @@ model LambdaConfig {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  jobs LambdaJob[]
+  jobs    LambdaJob[]
+  project VSLProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([projectId])
   @@index([lambdaName])
   @@index([mediaType])
   @@index([isDefault])
@@ -340,7 +428,8 @@ model LambdaJob {
   updatedAt       DateTime @updatedAt @map("updated_at")
   completedAt     DateTime? @map("completed_at")
 
-  config LambdaConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+  config        LambdaConfig?   @relation(fields: [configId], references: [id], onDelete: SetNull)
+  sectionVideos SectionVideo[]
 
   @@index([configId])
   @@index([userId])

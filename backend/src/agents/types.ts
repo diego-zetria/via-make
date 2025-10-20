@@ -13,6 +13,7 @@ export enum AgentRole {
   FALLBACK_HANDLER = 'fallback_handler',
   VSL_SPECIALIST = 'vsl_specialist',
   LAMBDA_CONFIG = 'lambda_config',
+  SCRIPT_DETAIL = 'script_detail',
 }
 
 export enum MessageType {
@@ -195,4 +196,43 @@ export interface LambdaConfigOutput extends AgentResponse {
   changes?: string[];
   costImpact?: string;
   qualityImpact?: string;
+}
+
+export interface ScriptDetailInput {
+  projectId: string;
+  sectionId: string;
+  sectionContent: string; // Basic section content from VSLSection
+  totalDuration: number; // Total duration in seconds
+  language: 'pt-br' | 'en' | 'es' | 'it' | 'fr' | 'de';
+  modelId: string; // To calculate video count based on model limitations
+  productContext?: {
+    productName?: string;
+    productService?: string;
+    targetAudience?: string;
+    tone?: string;
+  };
+}
+
+export interface SectionVideoDetail {
+  videoOrder: number;
+  startTime: string; // "0:00"
+  endTime: string; // "0:10"
+  duration: number; // seconds
+  partName: string; // "PART 1: The Ordinary World"
+  step: string; // "Step 1: The Hero in Their World"
+  objective: string;
+  voice: string; // Narration script
+  example: string; // Example script
+  visual: string; // Visual description
+  optimizedPrompt: string; // Combined voice + visual optimized for video generation
+}
+
+export interface ScriptDetailOutput extends AgentResponse {
+  detailedScript?: {
+    language: string;
+    totalDuration: number;
+    videoCount: number;
+    videos: SectionVideoDetail[];
+    reasoning?: string; // Why this video count and structure
+  };
 }

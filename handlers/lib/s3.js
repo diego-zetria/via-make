@@ -144,6 +144,52 @@ class S3Manager {
   }
 
   /**
+   * Upload media from local file path
+   * @param {Object} params
+   * @param {string} params.filePath - Local file path
+   * @param {string} params.userId - User ID
+   * @param {string} params.mediaType - Media type
+   * @param {string} params.jobId - Job ID
+   * @param {string} params.filename - Destination filename
+   * @param {string} params.contentType - MIME type
+   * @param {Object} params.metadata - Additional metadata
+   * @returns {Promise<Object>} Upload result
+   */
+  async uploadFile({ filePath, userId, mediaType, jobId, filename, contentType, metadata = {} }) {
+    const log = logger.create({ context: 's3-manager', operation: 'upload-file' });
+    const fs = require('fs');
+
+    try {
+      log.info('Reading local file', { filePath });
+
+      // Read file from local filesystem
+      const buffer = fs.readFileSync(filePath);
+      log.info('File read successfully', { size: buffer.length });
+
+      // Generate S3 key
+      const s3Key = this.generateS3Key({ userId, mediaType, jobId, filename });
+
+      // Upload to S3
+      return await this.uploadMedia({
+        buffer,
+        s3Key,
+        contentType,
+        metadata: {
+          ...metadata,
+          sourcePath: filePath
+        }
+      });
+
+    } catch (error) {
+      log.error('Upload from file failed', {
+        error: error.message,
+        filePath
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Generate presigned URL for temporary access
    * @param {string} s3Key - S3 key
    * @param {number} expiresIn - Expiration in seconds (default: 3600 = 1 hour)

@@ -33,6 +33,9 @@ provider:
     WEBHOOK_BASE_URL:
       Fn::Sub: '${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}'
 
+    # Backend webhook URL (Node.js backend via ngrok or production URL)
+    BACKEND_BASE_URL: ${ssm:/vsl/backend-base-url, 'https://brittany-gawsy-bently.ngrok-free.dev'}
+
   # Configuração VPC para acesso seguro aos recursos
   vpc:
     securityGroupIds:
@@ -146,6 +149,23 @@ functions:
             parameters:
               paths:
                 jobId: true
+
+  # Compile Videos - Concatenates multiple videos using FFmpeg
+  compileVideos:
+    handler: handlers/compile-videos.handler
+    description: 'VSL: Compile multiple videos into one using FFmpeg'
+    memorySize: 3008
+    timeout: 600
+    ephemeralStorageSize: 2048
+    layers:
+      # FFmpeg Lambda Layer (deployed from AWS SAR to our account)
+      # Provides FFmpeg binary at /opt/bin/ffmpeg
+      - arn:aws:lambda:us-east-1:727646477615:layer:ffmpeg:1
+    events:
+      - http:
+          path: /compile-videos
+          method: post
+          cors: true
 
 # CloudFormation Resources
 resources:
@@ -290,13 +310,16 @@ resources:
 
 # Packaging configuration
 package:
-  individually: false
+  individually: true
   patterns:
     - '!.git/**'
     - '!.gitignore'
     - '!README.md'
     - '!docs/**'
     - '!database/**'
+    - '!backend/**'
+    - '!frontend/**'
+    - '!.serverless/**'
     - '!*.md'
     - 'handlers/**'
     - 'config/**'

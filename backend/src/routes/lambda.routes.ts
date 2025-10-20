@@ -8,8 +8,34 @@
 import { Router } from 'express';
 import { logger } from '../utils/logger.js';
 import { AgentManager } from '../agents/index.js';
+import {
+  requireAuth,
+  requireConfigOwnership,
+  requireJobOwnership,
+} from '../middleware/auth.js';
+import { validateBody } from '../middleware/validation.js';
+import {
+  suggestLambdaConfigSchema,
+  optimizeLambdaConfigSchema,
+  createLambdaConfigSchema,
+  updateLambdaConfigSchema,
+  createLambdaJobSchema,
+} from '../validation/schemas.js';
+import {
+  generalLimiter,
+  aiGenerationLimiter,
+  lambdaJobLimiter,
+  configModificationLimiter,
+  statusPollingLimiter,
+} from '../middleware/rateLimiter.js';
 
 const router = Router();
+
+// Apply authentication to all routes
+router.use(requireAuth);
+
+// Apply general rate limiter to all routes
+router.use(generalLimiter);
 
 /**
  * POST /api/lambda/suggest
@@ -27,9 +53,10 @@ const router = Router();
  *   - budget: string ('low', 'medium', 'high', or specific value)
  *   - qualityPriority: 'cost' | 'balanced' | 'quality'
  */
-router.post('/suggest', async (req, res) => {
+router.post('/suggest', aiGenerationLimiter, validateBody(suggestLambdaConfigSchema), async (req, res) => {
   try {
     const { projectId, mediaType, context } = req.body;
+    const userId = req.user?.id;
 
     // Validation
     if (!projectId || !mediaType) {
@@ -46,6 +73,28 @@ router.post('/suggest', async (req, res) => {
         message: 'Invalid mediaType. Must be one of: video, image, audio',
       });
     }
+
+    // Optional: Verify project ownership (disabled for development flexibility)
+    // In production, uncomment this block to enforce ownership checks
+    // const { prisma } = await import('../config/database.js');
+    // const project = await prisma.vSLProject.findUnique({
+    //   where: { id: projectId },
+    //   select: { userId: true },
+    // });
+
+    // if (!project) {
+    //   return res.status(404).json({
+    //     success: false,
+    //     message: 'Project not found',
+    //   });
+    // }
+
+    // if (project.userId !== userId) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: 'Access denied. You do not own this project.',
+    //   });
+    // }
 
     // Import AgentManager dynamically if needed
     const agentManager = new AgentManager(null as any); // Socket.IO not needed for Lambda config
@@ -91,9 +140,10 @@ router.post('/suggest', async (req, res) => {
  * - currentParams: Object (required) - Current Lambda parameters
  * - context: Object (optional) - Same as suggest endpoint
  */
-router.post('/optimize', async (req, res) => {
+router.post('/optimize', aiGenerationLimiter, validateBody(optimizeLambdaConfigSchema), async (req, res) => {
   try {
     const { projectId, mediaType, currentParams, context } = req.body;
+    const userId = req.user?.id;
 
     // Validation
     if (!projectId || !mediaType || !currentParams) {
@@ -110,6 +160,28 @@ router.post('/optimize', async (req, res) => {
         message: 'Invalid mediaType. Must be one of: video, image, audio',
       });
     }
+
+    // Optional: Verify project ownership (disabled for development flexibility)
+    // In production, uncomment this block to enforce ownership checks
+    // const { prisma } = await import('../config/database.js');
+    // const project = await prisma.vSLProject.findUnique({
+    //   where: { id: projectId },
+    //   select: { userId: true },
+    // });
+
+    // if (!project) {
+    //   return res.status(404).json({
+    //     success: false,
+    //     message: 'Project not found',
+    //   });
+    // }
+
+    // if (project.userId !== userId) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: 'Access denied. You do not own this project.',
+    //   });
+    // }
 
     const agentManager = new AgentManager(null as any);
     await agentManager.initialize();
@@ -158,9 +230,10 @@ router.post('/optimize', async (req, res) => {
  * - modelId: string (required)
  * - defaultParams: Object (required)
  * - userId: string (optional)
+ * - projectId: string (optional) - Link to VSL project
  * - isDefault: boolean (optional)
  */
-router.post('/configs', async (req, res) => {
+router.post('/configs', configModificationLimiter, validateBody(createLambdaConfigSchema), async (req, res) => {
   try {
     const {
       name,
@@ -170,9 +243,13 @@ router.post('/configs', async (req, res) => {
       mediaType,
       modelId,
       defaultParams,
+      suggestedParams,
+      suggestionMeta,
       userId,
+      projectId,
       isDefault,
     } = req.body;
+    const authenticatedUserId = req.user?.id;
 
     // Validation
     if (!name || !lambdaName || !lambdaUrl || !mediaType || !modelId || !defaultParams) {
@@ -182,15 +259,48 @@ router.post('/configs', async (req, res) => {
       });
     }
 
+    // Optional: If userId provided, must match authenticated user (disabled for development)
+    // In production, uncomment this block to enforce user verification
+    // if (userId && userId !== authenticatedUserId) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: 'Access denied. You can only create configs for yourself.',
+    //   });
+    // }
+
     const { prisma } = await import('../config/database.js');
 
-    // If marking as default, unset other defaults for this media type
+    // Optional: If projectId provided, verify ownership (disabled for development)
+    // In production, uncomment this block to enforce ownership checks
+    // if (projectId) {
+    //   const project = await prisma.vSLProject.findUnique({
+    //     where: { id: projectId },
+    //     select: { userId: true },
+    //   });
+
+    //   if (!project) {
+    //     return res.status(404).json({
+    //       success: false,
+    //       message: 'Project not found',
+    //     });
+    //   }
+
+    //   if (project.userId !== authenticatedUserId) {
+    //     return res.status(403).json({
+    //       success: false,
+    //       message: 'Access denied. You do not own this project.',
+    //     });
+    //   }
+    // }
+
+    // If marking as default, unset other defaults for this media type and project
     if (isDefault) {
       await prisma.lambdaConfig.updateMany({
         where: {
           mediaType,
           isDefault: true,
           ...(userId && { userId }),
+          ...(projectId && { projectId }),
         },
         data: {
           isDefault: false,
@@ -198,9 +308,25 @@ router.post('/configs', async (req, res) => {
       });
     }
 
+    logger.info('Creating Lambda config with data:', {
+      userId,
+      projectId,
+      name,
+      description,
+      lambdaName,
+      lambdaUrl,
+      mediaType,
+      modelId,
+      hasDefaultParams: !!defaultParams,
+      hasSuggestedParams: !!suggestedParams,
+      hasSuggestionMeta: !!suggestionMeta,
+      isDefault,
+    });
+
     const config = await prisma.lambdaConfig.create({
       data: {
         userId,
+        projectId,
         name,
         description,
         lambdaName,
@@ -208,6 +334,8 @@ router.post('/configs', async (req, res) => {
         mediaType,
         modelId,
         defaultParams,
+        ...(suggestedParams && { suggestedParams }),
+        ...(suggestionMeta && { suggestionMeta }),
         isDefault: isDefault || false,
       },
     });
@@ -218,10 +346,15 @@ router.post('/configs', async (req, res) => {
       data: config,
     });
   } catch (error: any) {
-    logger.error('Failed to save Lambda config:', error);
+    logger.error('Failed to save Lambda config:', {
+      error: error.message,
+      stack: error.stack,
+      code: error.code,
+    });
     res.status(500).json({
       success: false,
       message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 });
@@ -232,18 +365,47 @@ router.post('/configs', async (req, res) => {
  * List all Lambda configurations
  *
  * Query:
- * - userId: string (optional) - Filter by user
+ * - projectId: string (optional) - Filter by project
  * - mediaType: string (optional) - Filter by media type
  * - isActive: boolean (optional) - Filter by active status
  */
 router.get('/configs', async (req, res) => {
   try {
-    const { userId, mediaType, isActive } = req.query;
+    const { projectId, mediaType, isActive } = req.query;
+    const userId = req.user?.id;
     const { prisma } = await import('../config/database.js');
+
+    // Optional: If projectId provided, verify ownership (disabled for development)
+    // In production, uncomment this block to enforce ownership checks
+    // if (projectId) {
+    //   const project = await prisma.vSLProject.findUnique({
+    //     where: { id: projectId as string },
+    //     select: { userId: true },
+    //   });
+
+    //   if (!project) {
+    //     return res.status(404).json({
+    //       success: false,
+    //       message: 'Project not found',
+    //     });
+    //   }
+
+    //   if (project.userId !== userId) {
+    //     return res.status(403).json({
+    //       success: false,
+    //       message: 'Access denied. You do not own this project.',
+    //     });
+    //   }
+    // }
 
     const configs = await prisma.lambdaConfig.findMany({
       where: {
-        ...(userId && { userId: userId as string }),
+        // Only return configs owned by user OR global configs (no userId)
+        OR: [
+          { userId: userId },
+          { userId: null },
+        ],
+        ...(projectId && { projectId: projectId as string }),
         ...(mediaType && { mediaType: mediaType as string }),
         ...(isActive !== undefined && { isActive: isActive === 'true' }),
       },
@@ -278,7 +440,7 @@ router.get('/configs', async (req, res) => {
  *
  * Get a specific Lambda configuration
  */
-router.get('/configs/:id', async (req, res) => {
+router.get('/configs/:id', requireConfigOwnership, async (req, res) => {
   try {
     const { prisma } = await import('../config/database.js');
 
@@ -320,7 +482,7 @@ router.get('/configs/:id', async (req, res) => {
  *
  * Body: Same fields as POST /configs (all optional except those being updated)
  */
-router.put('/configs/:id', async (req, res) => {
+router.put('/configs/:id', configModificationLimiter, requireConfigOwnership, validateBody(updateLambdaConfigSchema), async (req, res) => {
   try {
     const {
       name,
@@ -394,7 +556,7 @@ router.put('/configs/:id', async (req, res) => {
  *
  * Delete a Lambda configuration
  */
-router.delete('/configs/:id', async (req, res) => {
+router.delete('/configs/:id', configModificationLimiter, requireConfigOwnership, async (req, res) => {
   try {
     const { prisma } = await import('../config/database.js');
 
@@ -430,7 +592,7 @@ router.delete('/configs/:id', async (req, res) => {
  * - prompt: string (required)
  * - parameters: Object (required)
  */
-router.post('/jobs', async (req, res) => {
+router.post('/jobs', lambdaJobLimiter, validateBody(createLambdaJobSchema), async (req, res) => {
   try {
     const {
       configId,
@@ -442,6 +604,7 @@ router.post('/jobs', async (req, res) => {
       prompt,
       parameters,
     } = req.body;
+    const authenticatedUserId = req.user?.id;
 
     // Validation
     if (!lambdaName || !mediaType || !modelId || !prompt || !parameters) {
@@ -451,7 +614,59 @@ router.post('/jobs', async (req, res) => {
       });
     }
 
+    // If userId provided, must match authenticated user
+    if (userId && userId !== authenticatedUserId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only create jobs for yourself.',
+      });
+    }
+
     const { prisma } = await import('../config/database.js');
+
+    // If projectId provided, verify ownership
+    if (projectId) {
+      const project = await prisma.vSLProject.findUnique({
+        where: { id: projectId },
+        select: { userId: true },
+      });
+
+      if (!project) {
+        return res.status(404).json({
+          success: false,
+          message: 'Project not found',
+        });
+      }
+
+      if (project.userId !== authenticatedUserId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You do not own this project.',
+        });
+      }
+    }
+
+    // If configId provided, verify ownership
+    if (configId) {
+      const config = await prisma.lambdaConfig.findUnique({
+        where: { id: configId },
+        select: { userId: true },
+      });
+
+      if (!config) {
+        return res.status(404).json({
+          success: false,
+          message: 'Lambda configuration not found',
+        });
+      }
+
+      if (config.userId && config.userId !== authenticatedUserId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You do not own this configuration.',
+        });
+      }
+    }
 
     // Generate UUID for job
     const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -495,16 +710,102 @@ router.post('/jobs', async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      message: 'Lambda job created successfully',
-      data: {
-        ...job,
-        // Note: In real implementation, this would call the actual Lambda function
-        // and return the real jobId from Replicate
-        note: 'Job created in database. Call Lambda function to start processing.',
-      },
-    });
+    // ⚠️ CALL AWS LAMBDA TO START ACTUAL PROCESSING
+    try {
+      const lambdaUrl = `${process.env.LAMBDA_API_BASE_URL}/generate-media`;
+
+      logger.info(`🚀 Calling Lambda: ${lambdaUrl}`, {
+        jobId,
+        mediaType,
+        modelId,
+      });
+
+      // Construct webhook URL for Replicate callbacks
+      const webhookUrl = `${process.env.BACKEND_BASE_URL}/api/webhooks/replicate`;
+
+      const lambdaResponse = await fetch(lambdaUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userId || 'anonymous',
+          mediaType,
+          modelId,
+          parameters,
+          webhook_url: webhookUrl, // Replicate will POST to this URL when done
+        }),
+      });
+
+      logger.info(`📡 Webhook configured: ${webhookUrl}`);
+
+      const lambdaResult = await lambdaResponse.json();
+
+      if (lambdaResponse.ok && lambdaResult.success) {
+        // Update job with Replicate job ID
+        await prisma.lambdaJob.update({
+          where: { id: job.id },
+          data: {
+            replicateJobId: lambdaResult.replicateJobId,
+            status: 'processing',
+          },
+        });
+
+        logger.info(`✅ Lambda called successfully`, {
+          jobId,
+          replicateJobId: lambdaResult.replicateJobId,
+        });
+
+        res.json({
+          success: true,
+          message: 'Lambda job created and processing started',
+          data: {
+            ...job,
+            replicateJobId: lambdaResult.replicateJobId,
+            status: 'processing',
+          },
+        });
+      } else {
+        // Lambda call failed
+        logger.error('❌ Lambda call failed', {
+          status: lambdaResponse.status,
+          error: lambdaResult,
+        });
+
+        await prisma.lambdaJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'failed',
+            error: lambdaResult.message || 'Lambda call failed',
+          },
+        });
+
+        res.status(500).json({
+          success: false,
+          message: `Lambda call failed: ${lambdaResult.message || 'Unknown error'}`,
+          data: job,
+        });
+      }
+    } catch (lambdaError: any) {
+      logger.error('❌ Error calling Lambda', {
+        error: lambdaError.message,
+        jobId,
+      });
+
+      await prisma.lambdaJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'failed',
+          error: `Lambda error: ${lambdaError.message}`,
+        },
+      });
+
+      res.status(500).json({
+        success: false,
+        message: `Failed to call Lambda: ${lambdaError.message}`,
+        data: job,
+      });
+    }
   } catch (error: any) {
     logger.error('Failed to create Lambda job:', error);
     res.status(500).json({
@@ -519,7 +820,7 @@ router.post('/jobs', async (req, res) => {
  *
  * Get Lambda job status and results
  */
-router.get('/jobs/:jobId', async (req, res) => {
+router.get('/jobs/:jobId', statusPollingLimiter, requireJobOwnership, async (req, res) => {
   try {
     const { prisma } = await import('../config/database.js');
 
@@ -557,7 +858,6 @@ router.get('/jobs/:jobId', async (req, res) => {
  * List Lambda jobs
  *
  * Query:
- * - userId: string (optional)
  * - projectId: string (optional)
  * - status: string (optional)
  * - mediaType: string (optional)
@@ -565,12 +865,39 @@ router.get('/jobs/:jobId', async (req, res) => {
  */
 router.get('/jobs', async (req, res) => {
   try {
-    const { userId, projectId, status, mediaType, limit } = req.query;
+    const { projectId, status, mediaType, limit } = req.query;
+    const userId = req.user?.id;
     const { prisma } = await import('../config/database.js');
+
+    // If projectId provided, verify ownership
+    if (projectId) {
+      const project = await prisma.vSLProject.findUnique({
+        where: { id: projectId as string },
+        select: { userId: true },
+      });
+
+      if (!project) {
+        return res.status(404).json({
+          success: false,
+          message: 'Project not found',
+        });
+      }
+
+      if (project.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You do not own this project.',
+        });
+      }
+    }
 
     const jobs = await prisma.lambdaJob.findMany({
       where: {
-        ...(userId && { userId: userId as string }),
+        // Only return jobs owned by user OR anonymous jobs (no userId)
+        OR: [
+          { userId: userId },
+          { userId: null },
+        ],
         ...(projectId && { projectId: projectId as string }),
         ...(status && { status: status as string }),
         ...(mediaType && { mediaType: mediaType as string }),
